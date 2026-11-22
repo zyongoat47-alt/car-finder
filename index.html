@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Car Finder</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#070a0f">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Car Finder">
+<style>
+:root{--bg:#070a0f;--card:#0f141c;--ink:#e8fbff;--mut:#8b95a7;--c:#37f0ff;--g:#7dffb0;--r:#ff4b6e}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.app{max-width:440px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;padding:18px 18px 28px}
+header{display:flex;justify-content:space-between;align-items:center}
+h1{font-size:18px;margin:0;letter-spacing:.5px}h1 b{color:var(--c)}
+.pill{font-size:12px;color:var(--mut);border:1px solid #233042;border-radius:999px;padding:4px 10px;background:none;color:var(--mut)}
+.pill.on{color:var(--g);border-color:#2f5a48}
+.status{margin:14px 0 4px;color:var(--mut);font-size:14px;min-height:20px;text-align:center}
+.stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px}
+.big{width:230px;height:230px;border-radius:50%;border:0;font-size:22px;font-weight:600;color:#04121a;cursor:pointer;
+ background:radial-gradient(circle at 35% 30%,#9ffaff,#37f0ff 45%,#0aa7c2);box-shadow:0 0 0 10px rgba(55,240,255,.08),0 0 40px rgba(55,240,255,.35);transition:transform .1s}
+.big:active{transform:scale(.96)}
+.big.find{background:radial-gradient(circle at 35% 30%,#d8ffe9,#7dffb0 45%,#21b36b);box-shadow:0 0 0 10px rgba(125,255,176,.08),0 0 40px rgba(125,255,176,.35)}
+.big small{display:block;font-size:13px;font-weight:500;opacity:.75;margin-top:6px}
+canvas{width:300px;height:300px}
+.dist{font-size:46px;font-weight:700;letter-spacing:-1px;text-align:center}
+.dist small{display:block;font-size:13px;color:var(--mut);font-weight:500;letter-spacing:0}
+.bar{width:100%;max-width:320px;height:10px;background:#1a2230;border-radius:6px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--c),var(--g));transition:width .4s}
+.row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.btn{background:var(--card);border:1px solid #233042;color:var(--ink);border-radius:12px;padding:11px 16px;font-size:14px;cursor:pointer}
+.btn.warn{border-color:#5a2a35;color:#ffb3c1}
+.done{position:fixed;inset:0;background:rgba(4,8,12,.94);display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:9;text-align:center;padding:24px}
+.done.show{display:flex}.done h2{font-size:30px;margin:0}.done p{color:var(--mut);margin:0}
+.check{width:120px;height:120px;border-radius:50%;background:radial-gradient(circle,#7dffb0,#21b36b);display:flex;align-items:center;justify-content:center;font-size:62px;color:#04210f;animation:pop .5s ease}
+@keyframes pop{0%{transform:scale(.3)}70%{transform:scale(1.12)}100%{transform:scale(1)}}
+.conf{position:fixed;top:-10px;width:8px;height:14px;border-radius:2px;animation:fall linear forwards;z-index:10}
+@keyframes fall{to{transform:translateY(110vh) rotate(720deg)}}
+.foot{color:var(--mut);font-size:12px;text-align:center;line-height:1.5;margin-top:10px}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<div class="app">
+  <header><h1>CAR <b>FINDER</b></h1><div class="row" style="gap:6px"><button class="pill hide" id="instBtn">Install</button><button class="pill" id="unitBtn">ft</button><button class="pill" id="demoBtn">Demo walk</button></div></header>
+  <div class="status" id="status">Press the button when you park.</div>
+  <div class="stage">
+    <div id="findView" class="hide" style="display:flex;flex-direction:column;align-items:center;gap:14px">
+      <canvas id="radar" width="600" height="600"></canvas>
+      <div class="dist" id="dist">–<small id="sub">getting your location…</small></div>
+      <div class="bar"><i id="bar"></i></div>
+    </div>
+    <button class="big" id="big">I'm parked<small>Save my car's spot</small></button>
+    <div class="row" id="extra"></div>
+  </div>
+  <div class="foot">Works with your phone's GPS. Keep this page open while you walk back.<br>Outdoors is accurate to about 5–10 m; deep inside garages GPS gets weak.</div>
+</div>
+<div class="done" id="done"><div class="check">✓</div><h2>Found your car!</h2><p id="doneTxt"></p><button class="btn" id="doneBtn" style="margin-top:10px">Done</button></div>
+<script>
+const $ = id => document.getElementById(id);
+const store = { get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return this['_' + k] || null; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { this['_' + k] = v; } } };
+let state = store.get('cf_state') || { mode: 'idle', car: null }, me = null, heading = null, watchId = null, startDist = null, startTime = null, demo = false, demoTimer = null, unit = store.get('cf_unit') || 'ft';
+const R = 6371000, rad = d => d * Math.PI / 180, deg = r => r * 180 / Math.PI;
+function distance(a, b) { const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon); const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); }
+function bearing(a, b) { const y = Math.sin(rad(b.lon - a.lon)) * Math.cos(rad(b.lat)); const x = Math.cos(rad(a.lat)) * Math.sin(rad(b.lat)) - Math.sin(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.cos(rad(b.lon - a.lon)); return (deg(Math.atan2(y, x)) + 360) % 360; }
+function fmt(m) { if (unit === 'ft') { const ft = m * 3.28084; return ft > 1000 ? [(ft / 5280).toFixed(2), 'mi'] : [Math.round(ft), 'ft']; } return m > 1000 ? [(m / 1000).toFixed(2), 'km'] : [Math.round(m), 'm']; }
+function offset(p, meters, brg) { const d = meters / R, b = rad(brg), la = rad(p.lat), lo = rad(p.lon); const la2 = Math.asin(Math.sin(la) * Math.cos(d) + Math.cos(la) * Math.sin(d) * Math.cos(b)); const lo2 = lo + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(la), Math.cos(d) - Math.sin(la) * Math.sin(la2)); return { lat: deg(la2), lon: deg(lo2), acc: 6 }; }
+function save() { store.set('cf_state', state); }
+function setUI() {
+  const big = $('big'), fv = $('findView');
+  if (state.mode === 'idle') { big.className = 'big'; big.innerHTML = "I'm parked<small>Save my car's spot</small>"; fv.classList.add('hide'); big.classList.remove('hide'); $('status').textContent = 'Press the button when you park.'; $('extra').innerHTML = ''; }
+  else if (state.mode === 'parked') { big.className = 'big find'; big.innerHTML = 'Find my car<small>Saved ' + new Date(state.car.t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '</small>'; fv.classList.add('hide'); big.classList.remove('hide'); $('status').textContent = 'Spot saved ✓ (±' + Math.round(state.car.acc || 0) + ' m). Press again when you come back.'; $('extra').innerHTML = '<button class="btn warn" id="clr">Clear spot</button>'; $('clr').onclick = () => { state = { mode: 'idle', car: null }; save(); setUI(); }; }
+  else { big.classList.add('hide'); fv.classList.remove('hide'); $('status').textContent = 'Walk toward the green dot.'; $('extra').innerHTML = '<button class="btn" id="stop">Stop</button><button class="btn" id="here">I\'m at the car</button>'; $('stop').onclick = () => { stopWatch(); state.mode = 'parked'; save(); setUI(); }; $('here').onclick = arrived; }
+}
+function getPos() { return new Promise((res, rej) => { if (demo) return res(me || { lat: 40.7128, lon: -74.006, acc: 5 }); if (!navigator.geolocation) return rej(new Error('No GPS in this browser')); navigator.geolocation.getCurrentPosition(p => res({ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy }), rej, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }); }); }
+async function askCompass() { try { if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') await DeviceOrientationEvent.requestPermission(); } catch (e) {}
+  window.addEventListener('deviceorientationabsolute', onOri, true); window.addEventListener('deviceorientation', onOri, true); }
+function onOri(e) { if (e.webkitCompassHeading != null) heading = e.webkitCompassHeading; else if (e.absolute && e.alpha != null) heading = (360 - e.alpha) % 360; }
+$('big').onclick = async () => {
+  if (state.mode === 'idle') { $('status').textContent = 'Saving your spot…'; try { const p = await getPos(); state = { mode: 'parked', car: Object.assign(p, { t: Date.now() }) }; save(); setUI(); buzz(40); } catch (e) { $('status').textContent = 'Couldn\'t get GPS: ' + (e.message || 'permission denied') + '. Allow location for this page.'; } }
+  else if (state.mode === 'parked') { await askCompass(); state.mode = 'finding'; save(); startDist = null; startTime = Date.now(); setUI(); startWatch(); }
+};
+function startWatch() { stopWatch(); if (demo) { me = offset(state.car, 180, 230); demoTimer = setInterval(() => { const d = distance(me, state.car); const b = bearing(me, state.car) + (Math.random() - 0.5) * 30; me = offset(me, Math.min(d, 3.2), b); heading = (b + (Math.random() - 0.5) * 20 + 360) % 360; update(); }, 500); return; }
+  if (!navigator.geolocation) { $('sub').textContent = 'No GPS in this browser'; return; }
+  watchId = navigator.geolocation.watchPosition(p => { me = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy }; update(); }, e => { $('sub').textContent = 'GPS error: ' + e.message; }, { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 }); }
+function stopWatch() { if (watchId != null) navigator.geolocation.clearWatch(watchId); watchId = null; clearInterval(demoTimer); demoTimer = null; }
+function update() { if (!me || !state.car) return; const d = distance(me, state.car); if (startDist == null) startDist = Math.max(d, 1); const [n, u] = fmt(d);
+  $('dist').firstChild.nodeValue = n + ' ' + u; $('sub').textContent = 'GPS ±' + Math.round(me.acc) + ' m' + (heading == null ? ' · turn on compass for the arrow' : ''); $('bar').style.width = Math.max(0, Math.min(100, (1 - d / startDist) * 100)) + '%';
+  draw(d, bearing(me, state.car)); if (d < Math.max(8, Math.min(me.acc, 15))) arrived(); }
+function draw(d, brg) { const c = $('radar'), x = c.getContext('2d'), W = 600, cx = 300, cy = 300; x.clearRect(0, 0, W, W);
+  for (let i = 1; i <= 4; i++) { x.beginPath(); x.arc(cx, cy, i * 65, 0, Math.PI * 2); x.strokeStyle = i === 4 ? '#233042' : '#151d29'; x.lineWidth = 2; x.stroke(); }
+  const rot = heading == null ? 0 : heading; const a = rad(brg - rot - 90); const scale = 260 / Math.max(startDist || d, 30); const rr = Math.min(260, d * scale);
+  const px = cx + Math.cos(a) * rr, py = cy + Math.sin(a) * rr;
+  x.setLineDash([10, 10]); x.beginPath(); x.moveTo(cx, cy); x.lineTo(px, py); x.strokeStyle = 'rgba(125,255,176,.5)'; x.lineWidth = 4; x.stroke(); x.setLineDash([]);
+  const pulse = 18 + Math.sin(Date.now() / 200) * 4; x.beginPath(); x.arc(px, py, pulse + 10, 0, Math.PI * 2); x.fillStyle = 'rgba(125,255,176,.18)'; x.fill(); x.beginPath(); x.arc(px, py, 18, 0, Math.PI * 2); x.fillStyle = '#7dffb0'; x.fill();
+  x.fillStyle = '#04210f'; x.font = 'bold 22px system-ui'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('🚗', px, py + 1);
+  x.save(); x.translate(cx, cy); x.rotate(a + Math.PI / 2); x.beginPath(); x.moveTo(0, -46); x.lineTo(22, 14); x.lineTo(0, 2); x.lineTo(-22, 14); x.closePath(); x.fillStyle = '#37f0ff'; x.shadowColor = '#37f0ff'; x.shadowBlur = 20; x.fill(); x.restore();
+  x.fillStyle = '#8b95a7'; x.font = '20px system-ui'; x.fillText('You', cx, cy + 62); if (heading != null) { x.fillText('N', cx + Math.cos(rad(-rot - 90)) * 285, cy + Math.sin(rad(-rot - 90)) * 285); } }
+function arrived() { if (state.mode !== 'finding') return; stopWatch(); const mins = Math.max(1, Math.round((Date.now() - startTime) / 60000)); $('doneTxt').textContent = 'Walked back in about ' + mins + ' min' + (startDist ? ' · ' + fmt(startDist).join(' ') + ' away when you started' : '') + '.'; $('done').classList.add('show'); confetti(); buzz([60, 40, 120]); }
+$('doneBtn').onclick = () => { $('done').classList.remove('show'); state = { mode: 'idle', car: null }; save(); me = null; setUI(); };
+function confetti() { const cols = ['#37f0ff', '#7dffb0', '#ffb347', '#ff4fd8', '#fff']; for (let i = 0; i < 70; i++) { const e = document.createElement('div'); e.className = 'conf'; e.style.left = Math.random() * 100 + 'vw'; e.style.background = cols[i % cols.length]; e.style.animationDuration = 1.8 + Math.random() * 1.8 + 's'; e.style.animationDelay = Math.random() * 0.4 + 's'; document.body.appendChild(e); setTimeout(() => e.remove(), 4200); } }
+function buzz(p) { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} }
+$('unitBtn').onclick = () => { unit = unit === 'ft' ? 'm' : 'ft'; $('unitBtn').textContent = unit; store.set('cf_unit', unit); update(); };
+$('unitBtn').textContent = unit;
+$('demoBtn').onclick = () => { demo = !demo; $('demoBtn').classList.toggle('on', demo); $('demoBtn').textContent = demo ? 'Demo on' : 'Demo walk'; me = null; if (demo && state.mode === 'idle') { me = { lat: 40.7128, lon: -74.006, acc: 5 }; } if (state.mode === 'finding') { startDist = null; startWatch(); } };
+setUI(); if (state.mode === 'finding') startWatch();
+// --- PWA: offline + install ---
+try { if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {}); } catch (e) {}
+let deferred = null; window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; $('instBtn').classList.remove('hide'); });
+$('instBtn').onclick = async () => { if (deferred) { deferred.prompt(); await deferred.userChoice; deferred = null; $('instBtn').classList.add('hide'); } };
+const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone; const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+if (isIOS && !standalone) { $('instBtn').classList.remove('hide'); $('instBtn').onclick = () => alertBox('On iPhone: tap the Share button, then "Add to Home Screen".'); }
+function alertBox(t) { $('status').textContent = t; }
+setInterval(() => { if (state.mode === 'finding' && me) draw(distance(me, state.car), bearing(me, state.car)); }, 120);
+</script>
+</body>
+</html>
